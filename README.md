@@ -59,7 +59,7 @@ The results appear in the job summary:
 | `fail-on` | `none` | Fail on findings at this level or worse (`changed` mode: new findings only). |
 | `include-tests` | `false` | Also scan `*.t.sol`, `*.s.sol`, `test/` and `script/`. |
 | `working-directory` | `.` | Project directory. |
-| `cli-version` | `0.1.6` | Exact version of the `kestrova-scan` npm CLI to run. |
+| `cli-version` | `0.1.7` | Exact version of the `kestrova-scan` npm CLI to run. |
 
 Output: `exit-code` (0 ok, 1 threshold reached, 2 nothing to scan, 3 service unavailable or rate-limited).
 

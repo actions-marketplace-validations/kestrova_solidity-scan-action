@@ -39,7 +39,7 @@ inputs:
   cli-version:
     description: Exact kestrova-scan npm version to run (npm versions are immutable).
     required: false
-    default: "0.1.6"
+    default: "0.1.7"
 
 outputs:
   exit-code:
