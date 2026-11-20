@@ -38,7 +38,7 @@ jobs:
           node-version: 22
       # Hardhat/npm projects: install dependencies without running package scripts
       - run: if [ -f package-lock.json ]; then npm ci --ignore-scripts --no-audit --no-fund; fi
-      - uses: kestrova/solidity-scan-action@v1
+      - uses: kestrova/solidity-scan-action@v1.0.0
         with:
           fail-on: high             # none (default) | low | medium | high
 ```
