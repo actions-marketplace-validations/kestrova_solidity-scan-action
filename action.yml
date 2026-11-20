@@ -1,0 +1,108 @@
+name: Kestrova Solidity Scan
+description: Free Slither security preview of your Solidity contracts on every pull request. Not an audit; never pays.
+author: Kestrova
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  mode:
+    description: >
+      "changed" scans only the Solidity files changed in the pull request (plus the contracts that import them) and
+      reports NEW findings compared with the base branch. "all" scans the whole project (or "targets").
+      Default: "changed" on pull requests, "all" otherwise.
+    required: false
+    default: ""
+  base:
+    description: "Base revision for \"changed\" mode. Default: origin/<pull request base branch>."
+    required: false
+    default: ""
+  targets:
+    description: >
+      Space-separated files or folders to scan in "all" mode. Default: Foundry "src" or Hardhat "contracts".
+    required: false
+    default: ""
+  fail-on:
+    description: >
+      none | low | medium | high. Fail the step on findings at this level or worse (in "changed" mode: NEW findings
+      only). Default none (advisory).
+    required: false
+    default: none
+  include-tests:
+    description: Also scan *.t.sol / *.s.sol and test/ script/ folders.
+    required: false
+    default: "false"
+  working-directory:
+    description: Project directory.
+    required: false
+    default: "."
+  cli-version:
+    description: Exact kestrova-scan npm version to run (npm versions are immutable).
+    required: false
+    default: "0.1.6"
+
+outputs:
+  exit-code:
+    description: "kestrova-scan exit code: 0 ok, 1 fail-on threshold reached, 2 nothing could be collected, 3 service unavailable or rate-limited."
+    value: ${{ steps.scan.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install kestrova-scan (exact version, outside the checkout, no install scripts)
+      shell: bash
+      env:
+        KS_VERSION: ${{ inputs.cli-version }}
+      run: |
+        set -euo pipefail
+        if ! command -v node >/dev/null 2>&1; then
+          echo "::error::Node.js 18+ is required (add actions/setup-node before this step)"; exit 2
+        fi
+        major="$(node -p 'process.versions.node.split(".")[0]')"
+        if [ "$major" -lt 18 ]; then echo "::error::Node.js 18+ is required (found $(node -v))"; exit 2; fi
+        if ! printf '%s' "$KS_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+          echo "::error::cli-version must be an exact version such as 0.1.6"; exit 2
+        fi
+        npm install --ignore-scripts --no-audit --no-fund --silent \
+          --prefix "$RUNNER_TEMP/kestrova" "kestrova-scan@$KS_VERSION"
+
+    - name: Kestrova scan
+      id: scan
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        KS_MODE: ${{ inputs.mode }}
+        KS_BASE: ${{ inputs.base }}
+        KS_TARGETS: ${{ inputs.targets }}
+        KS_FAIL_ON: ${{ inputs.fail-on }}
+        KS_TESTS: ${{ inputs.include-tests }}
+        KS_EVENT: ${{ github.event_name }}
+        KS_BASE_REF: ${{ github.base_ref }}
+      run: |
+        set +e
+        case "$KS_FAIL_ON" in none|low|medium|high) ;; *) echo "::error::fail-on must be none, low, medium or high"; exit 2 ;; esac
+        mode="$KS_MODE"
+        if [ -z "$mode" ]; then
+          if [ "$KS_EVENT" = "pull_request" ] && [ -n "$KS_BASE_REF" ]; then mode=changed; else mode=all; fi
+        fi
+        args=()
+        case "$mode" in
+          changed)
+            base="$KS_BASE"
+            if [ -z "$base" ] && [ -n "$KS_BASE_REF" ]; then base="origin/$KS_BASE_REF"; fi
+            if [ -n "$base" ]; then args+=(--changed "$base"); else args+=(--changed); fi ;;
+          all)
+            if [ -n "$KS_TARGETS" ]; then read -r -a t <<< "$KS_TARGETS"; args+=("${t[@]}"); fi ;;
+          *) echo "::error::mode must be changed or all"; exit 2 ;;
+        esac
+        if [ "$KS_TESTS" = "true" ]; then args+=(--include-tests); fi
+        node "$RUNNER_TEMP/kestrova/node_modules/kestrova-scan/bin/kestrova-scan.mjs" "${args[@]}" --yes \
+          --fail-on "$KS_FAIL_ON" --summary-md "$GITHUB_STEP_SUMMARY" --state-dir "$RUNNER_TEMP/kestrova-state"
+        code=$?
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        case "$code" in
+          0) exit 0 ;;
+          1) echo "::error::Kestrova: findings at or above '$KS_FAIL_ON' (see the job summary)"; exit 1 ;;
+          3) echo "::warning::Kestrova unavailable or rate-limited; not blocking"; exit 0 ;;
+          *) echo "::warning::Kestrova could not scan this change (exit $code); see the log"; exit 0 ;;
+        esac
